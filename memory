@@ -1,1 +1,35 @@
-### This serves as Memory for the reports are stored here
+# MarketAnalyst Knowledge Base
+
+This file serves as persistent memory for the AI analyst, storing cumulative learnings and context.
+
+## Current Market Regime
+- **Status**: Initializing
+- **Last Updated**: Pending first analysis run
+
+## Portfolio Context
+- **Risk Profile**: 80/20 Aggressive
+- **Focus**: Global Macro, Equities + Commodities
+- **Sectors**: Diversified
+
+## Historical Learnings
+<!-- AI-generated insights will be appended here -->
+
+### Successful Predictions
+- None recorded yet
+
+### Lessons Learned
+- None recorded yet
+
+### Key Correlations Observed
+- None recorded yet
+
+## Active Watchlist
+<!-- Tickers and themes being monitored -->
+- Pending initialization
+
+## Recent Alert History
+<!-- Last 5 urgent alerts for context -->
+- No alerts yet
+
+---
+*This file is automatically updated by the n8n workflow*

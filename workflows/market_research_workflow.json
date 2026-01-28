@@ -1,0 +1,554 @@
+{
+  "name": "Market Research Analyst - Main Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger (Every 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "weekly-trigger",
+      "name": "Weekly Report Trigger (Sunday 8AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://news.google.com/rss/search?q=stock+market+economy&hl=en-US&gl=US&ceid=US:en",
+        "options": {}
+      },
+      "id": "fetch-google-news",
+      "name": "Fetch Google News - Markets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, -200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://news.google.com/rss/search?q=geopolitics+war+sanctions&hl=en-US&gl=US&ceid=US:en",
+        "options": {}
+      },
+      "id": "fetch-geopolitical-news",
+      "name": "Fetch Google News - Geopolitical",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, -50]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://news.google.com/rss/search?q=commodities+oil+gold+copper&hl=en-US&gl=US&ceid=US:en",
+      "options": {}
+      },
+      "id": "fetch-commodities-news",
+      "name": "Fetch Google News - Commodities",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^DJI,^IXIC,^VIX&region=US&lang=en-US",
+        "options": {}
+      },
+      "id": "fetch-yahoo-finance",
+      "name": "Fetch Yahoo Finance RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 250]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.reddit.com/r/wallstreetbets+investing+stocks/.rss?limit=25",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "fetch-reddit-sentiment",
+      "name": "Fetch Reddit Sentiment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine and parse all RSS feeds into structured news items\nconst allItems = [];\n\n// Helper to parse RSS XML\nfunction parseRSS(xmlText, source) {\n  const items = [];\n  const itemRegex = /<item>(.*?)<\\/item>/gs;\n  const titleRegex = /<title><!\\[CDATA\\[(.*?)\\]\\]>|<title>(.*?)<\\/title>/;\n  const linkRegex = /<link>(.*?)<\\/link>/;\n  const pubDateRegex = /<pubDate>(.*?)<\\/pubDate>/;\n  const descRegex = /<description><!\\[CDATA\\[(.*?)\\]\\]>|<description>(.*?)<\\/description>/;\n  \n  let match;\n  while ((match = itemRegex.exec(xmlText)) !== null) {\n    const itemXml = match[1];\n    const titleMatch = titleRegex.exec(itemXml);\n    const linkMatch = linkRegex.exec(itemXml);\n    const dateMatch = pubDateRegex.exec(itemXml);\n    const descMatch = descRegex.exec(itemXml);\n    \n    items.push({\n      title: titleMatch ? (titleMatch[1] || titleMatch[2] || '').trim() : '',\n      link: linkMatch ? linkMatch[1].trim() : '',\n      pubDate: dateMatch ? dateMatch[1].trim() : '',\n      description: descMatch ? (descMatch[1] || descMatch[2] || '').substring(0, 500) : '',\n      source: source\n    });\n  }\n  return items;\n}\n\n// Process each input\nfor (const item of $input.all()) {\n  const data = item.json.data || item.json.body || item.json;\n  if (typeof data === 'string' && data.includes('<')) {\n    const source = item.json.source || 'unknown';\n    const parsed = parseRSS(data, source);\n    allItems.push(...parsed);\n  }\n}\n\n// Deduplicate by title similarity and sort by date\nconst seen = new Set();\nconst uniqueItems = allItems.filter(item => {\n  const key = item.title.toLowerCase().substring(0, 50);\n  if (seen.has(key)) return false;\n  seen.add(key);\n  return true;\n}).sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));\n\n// Take top 50 most recent\nconst topNews = uniqueItems.slice(0, 50);\n\nreturn [{\n  json: {\n    newsCount: topNews.length,\n    fetchedAt: new Date().toISOString(),\n    news: topNews\n  }\n}];"
+      },
+      "id": "aggregate-news",
+      "name": "Aggregate & Parse News",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [550, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"You are an expert financial analyst and market researcher. Analyze the following news items and provide:\\n\\n1. **URGENCY SCORE** (1-10): Rate the overall market importance. 8+ means immediate alert needed.\\n   - 10: Black swan event (war outbreak, major market crash, pandemic)\\n   - 8-9: Significant market-moving event (major central bank surprise, geopolitical escalation)\\n   - 6-7: Notable news worth monitoring\\n   - 1-5: Routine market news\\n\\n2. **KEY THEMES**: Identify 3-5 dominant themes across the news\\n\\n3. **MARKET IMPACT SUMMARY**: Brief analysis of potential market implications\\n\\n4. **SECTOR ALERTS**: Which sectors are most affected (positive/negative)\\n\\n5. **COMMODITIES OUTLOOK**: Impact on gold, oil, and other key commodities\\n\\n6. **RISK ASSESSMENT**: Current risk-on or risk-off environment\\n\\nNews Items:\\n{{ $json.news.map(n => `- [${n.source}] ${n.title}`).join('\\\\n') }}\\n\\nProvide your analysis in a structured JSON format with these exact keys: urgencyScore, keyThemes, marketImpact, sectorAlerts, commoditiesOutlook, riskAssessment\"\n    }]\n  }],\n  \"generationConfig\": {\n    \"temperature\": 0.3,\n    \"topK\": 40,\n    \"topP\": 0.95,\n    \"maxOutputTokens\": 2048,\n    \"responseMimeType\": \"application/json\"\n  }\n}",
+        "options": {}
+      },
+      "id": "analyze-news-gemini",
+      "name": "Analyze News with Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [800, 100],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "GEMINI_API_CREDENTIAL_ID",
+          "name": "Gemini API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Gemini response and determine if alert is needed\nconst response = $input.first().json;\nlet analysis;\n\ntry {\n  // Extract the text content from Gemini response\n  const textContent = response.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  analysis = JSON.parse(textContent);\n} catch (e) {\n  analysis = {\n    urgencyScore: 5,\n    keyThemes: ['Unable to parse response'],\n    marketImpact: 'Analysis unavailable',\n    sectorAlerts: {},\n    commoditiesOutlook: 'Unknown',\n    riskAssessment: 'Unknown'\n  };\n}\n\nconst urgencyScore = analysis.urgencyScore || 5;\nconst needsImmediateAlert = urgencyScore >= 8;\nconst isWeeklyReportDay = new Date().getDay() === 0; // Sunday\n\nreturn [{\n  json: {\n    ...analysis,\n    urgencyScore,\n    needsImmediateAlert,\n    isWeeklyReportDay,\n    analyzedAt: new Date().toISOString(),\n    originalNews: $('Aggregate & Parse News').first().json.news\n  }\n}];"
+      },
+      "id": "process-analysis",
+      "name": "Process Analysis Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "urgent-alert",
+              "leftValue": "={{ $json.needsImmediateAlert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-urgency",
+      "name": "Check If Urgent Alert Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"URGENT MARKET ALERT - Generate an immediate action briefing.\\n\\nUrgency Score: {{ $json.urgencyScore }}/10\\n\\nKey Themes: {{ JSON.stringify($json.keyThemes) }}\\n\\nMarket Impact: {{ $json.marketImpact }}\\n\\nSector Alerts: {{ JSON.stringify($json.sectorAlerts) }}\\n\\nWrite a concise but comprehensive URGENT ALERT email for an investor with an 80/20 aggressive portfolio (equities + commodities, global macro, diversified sectors). Include:\\n\\n1. **ALERT HEADLINE** (attention-grabbing, factual)\\n2. **SITUATION SUMMARY** (2-3 sentences on what happened)\\n3. **IMMEDIATE IMPLICATIONS** (what this means for markets)\\n4. **RECOMMENDED ACTIONS** (specific, actionable steps - buy/sell/hold/hedge recommendations)\\n5. **RISK LEVEL** (current portfolio risk assessment)\\n6. **MONITORING POINTS** (what to watch in the next 24-48 hours)\\n\\nFormat as HTML email with proper styling. Be direct and actionable.\"\n    }]\n  }],\n  \"generationConfig\": {\n    \"temperature\": 0.4,\n    \"maxOutputTokens\": 4096\n  }\n}",
+        "options": {}
+      },
+      "id": "generate-urgent-alert",
+      "name": "Generate Urgent Alert Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1550, 0],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "GEMINI_API_CREDENTIAL_ID",
+          "name": "Gemini API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SENDER_EMAIL }}",
+        "toEmail": "={{ $env.RECIPIENT_EMAIL }}",
+        "subject": "=🚨 URGENT MARKET ALERT - Urgency {{ $('Process Analysis Result').first().json.urgencyScore }}/10 - {{ new Date().toLocaleDateString() }}",
+        "emailType": "html",
+        "html": "={{ $json.candidates?.[0]?.content?.parts?.[0]?.text || 'Alert content unavailable' }}",
+        "options": {}
+      },
+      "id": "send-urgent-email",
+      "name": "Send Urgent Alert Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1800, 0],
+      "credentials": {
+        "smtp": {
+          "id": "SMTP_CREDENTIAL_ID",
+          "name": "SMTP Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store the alert in knowledge base format\nconst analysis = $('Process Analysis Result').first().json;\nconst alertContent = $input.first().json.candidates?.[0]?.content?.parts?.[0]?.text || '';\n\nconst report = {\n  type: 'URGENT_ALERT',\n  date: new Date().toISOString(),\n  urgencyScore: analysis.urgencyScore,\n  keyThemes: analysis.keyThemes,\n  marketImpact: analysis.marketImpact,\n  sectorAlerts: analysis.sectorAlerts,\n  commoditiesOutlook: analysis.commoditiesOutlook,\n  riskAssessment: analysis.riskAssessment,\n  alertContent: alertContent,\n  newsItems: analysis.originalNews?.slice(0, 10) || []\n};\n\nreturn [{ json: report }];"
+      },
+      "id": "format-alert-for-storage",
+      "name": "Format Alert for Storage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store daily analysis in memory for weekly aggregation\nconst analysis = $input.first().json;\n\nconst dailyReport = {\n  type: 'DAILY_ANALYSIS',\n  date: new Date().toISOString(),\n  urgencyScore: analysis.urgencyScore,\n  keyThemes: analysis.keyThemes,\n  marketImpact: analysis.marketImpact,\n  sectorAlerts: analysis.sectorAlerts,\n  commoditiesOutlook: analysis.commoditiesOutlook,\n  riskAssessment: analysis.riskAssessment,\n  newsCount: analysis.originalNews?.length || 0\n};\n\nreturn [{ json: dailyReport }];"
+      },
+      "id": "store-daily-analysis",
+      "name": "Store Daily Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1550, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"You are a senior investment analyst preparing a comprehensive WEEKLY MARKET REPORT for a client with the following profile:\\n\\n**INVESTOR PROFILE:**\\n- Risk Tolerance: 80/20 Aggressive (80% equities, 20% commodities/alternatives)\\n- Geographic Focus: Global Macro (US, EU, Asia, Emerging Markets)\\n- Asset Classes: Equities + Commodities\\n- Sectors: Diversified\\n- Trading Platforms: Trading Republic, Interactive Brokers\\n\\n**THIS WEEK'S DATA:**\\n{{ JSON.stringify($json, null, 2) }}\\n\\nGenerate a comprehensive weekly report with the following sections:\\n\\n## 1. EXECUTIVE DASHBOARD\\n- Overall Market Sentiment: [Bullish/Neutral/Bearish]\\n- Risk Environment: [Risk-On/Risk-Off/Mixed]\\n- Recommended Portfolio Action: [Accumulate/Hold/Reduce/Defensive]\\n- Key Number of the Week: [Most important statistic]\\n\\n## 2. GLOBAL MACRO OVERVIEW\\n- US Markets Analysis\\n- European Markets Analysis\\n- Asian Markets Analysis\\n- Emerging Markets Spotlight\\n\\n## 3. SECTOR ANALYSIS\\n- Winners of the Week (with rationale)\\n- Losers of the Week (with rationale)\\n- Sectors to Watch\\n\\n## 4. COMMODITIES REPORT\\n- Gold & Precious Metals\\n- Energy (Oil, Natural Gas)\\n- Industrial Metals\\n- Agricultural (if relevant)\\n\\n## 5. INVESTMENT RECOMMENDATIONS\\n### BUY Recommendations (3-5 specific tickers)\\nFor each: Ticker, Current Context, Entry Zone, Risk Level\\n\\n### HOLD/MONITOR List\\nPositions to maintain or watch\\n\\n### SELL/AVOID Recommendations\\nWhat to reduce exposure to\\n\\n## 6. RISK FACTORS & WATCHLIST\\n- Key risks for the coming week\\n- Important dates (earnings, economic data, events)\\n- Scenarios to monitor\\n\\n## 7. PORTFOLIO ALLOCATION SUGGESTION\\nSuggested allocation breakdown for an 80/20 portfolio this week\\n\\nFormat as a professional HTML email with clean styling, tables where appropriate, and clear visual hierarchy. Use colors sparingly for emphasis (green for bullish, red for bearish, blue for neutral).\"\n    }]\n  }],\n  \"generationConfig\": {\n    \"temperature\": 0.5,\n    \"maxOutputTokens\": 8192\n  }\n}",
+        "options": {}
+      },
+      "id": "generate-weekly-report",
+      "name": "Generate Weekly Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [550, 500],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "GEMINI_API_CREDENTIAL_ID",
+          "name": "Gemini API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SENDER_EMAIL }}",
+        "toEmail": "={{ $env.RECIPIENT_EMAIL }}",
+        "subject": "=📊 Weekly Market Intelligence Report - Week of {{ new Date().toLocaleDateString() }}",
+        "emailType": "html",
+        "html": "={{ $json.candidates?.[0]?.content?.parts?.[0]?.text || 'Report content unavailable' }}",
+        "options": {}
+      },
+      "id": "send-weekly-email",
+      "name": "Send Weekly Report Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [800, 500],
+      "credentials": {
+        "smtp": {
+          "id": "SMTP_CREDENTIAL_ID",
+          "name": "SMTP Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format weekly report for GitHub storage\nconst reportHtml = $input.first().json.candidates?.[0]?.content?.parts?.[0]?.text || '';\nconst weekNumber = Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / 604800000);\nconst year = new Date().getFullYear();\n\nconst report = {\n  type: 'WEEKLY_REPORT',\n  year: year,\n  week: weekNumber,\n  date: new Date().toISOString(),\n  filename: `reports/${year}/week_${weekNumber.toString().padStart(2, '0')}.md`,\n  content: reportHtml\n};\n\nreturn [{ json: report }];"
+      },
+      "id": "format-weekly-for-storage",
+      "name": "Format Weekly Report for Storage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "create",
+        "owner": "={{ $env.GITHUB_OWNER }}",
+        "repository": "={{ $env.GITHUB_REPO }}",
+        "filePath": "={{ $json.filename }}",
+        "fileContent": "={{ $json.content }}",
+        "commitMessage": "=Add weekly report - Week {{ $json.week }}, {{ $json.year }}",
+        "additionalParameters": {
+          "branch": "main"
+        }
+      },
+      "id": "save-to-github",
+      "name": "Save Report to GitHub",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1300, 500],
+      "credentials": {
+        "githubApi": {
+          "id": "GITHUB_CREDENTIAL_ID",
+          "name": "GitHub API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "create",
+        "owner": "={{ $env.GITHUB_OWNER }}",
+        "repository": "={{ $env.GITHUB_REPO }}",
+        "filePath": "=alerts/{{ new Date().toISOString().split('T')[0] }}_alert.json",
+        "fileContent": "={{ JSON.stringify($json, null, 2) }}",
+        "commitMessage": "=Add urgent alert - {{ new Date().toISOString().split('T')[0] }}",
+        "additionalParameters": {
+          "branch": "main"
+        }
+      },
+      "id": "save-alert-to-github",
+      "name": "Save Alert to GitHub",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [2300, 0],
+      "credentials": {
+        "githubApi": {
+          "id": "GITHUB_CREDENTIAL_ID",
+          "name": "GitHub API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://query1.finance.yahoo.com/v8/finance/chart/^VIX?interval=1d&range=5d",
+        "options": {}
+      },
+      "id": "fetch-vix",
+      "name": "Fetch VIX Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, -350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check VIX level for volatility alerts\nconst vixData = $input.first().json;\nlet currentVix = 0;\nlet vixChange = 0;\n\ntry {\n  const quotes = vixData.chart?.result?.[0]?.indicators?.quote?.[0];\n  const closes = quotes?.close || [];\n  currentVix = closes[closes.length - 1] || 0;\n  const prevVix = closes[closes.length - 2] || currentVix;\n  vixChange = ((currentVix - prevVix) / prevVix * 100).toFixed(2);\n} catch (e) {\n  currentVix = 0;\n}\n\nreturn [{\n  json: {\n    currentVix,\n    vixChange,\n    vixAlert: currentVix > 25,\n    vixSpike: vixChange > 20,\n    fetchedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-vix",
+      "name": "Process VIX Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, -350]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d",
+        "options": {}
+      },
+      "id": "fetch-spy",
+      "name": "Fetch S&P 500 (SPY)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, -500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge VIX data with news before analysis\nconst newsData = $('Aggregate & Parse News').first().json;\nconst vixData = $('Process VIX Data').first().json;\n\nreturn [{\n  json: {\n    ...newsData,\n    vix: vixData,\n    marketData: {\n      vixLevel: vixData.currentVix,\n      vixAlert: vixData.vixAlert,\n      vixSpike: vixData.vixSpike\n    }\n  }\n}];"
+      },
+      "id": "merge-market-data",
+      "name": "Merge Market Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, -100]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Every 6h)": {
+      "main": [
+        [
+          { "node": "Fetch Google News - Markets", "type": "main", "index": 0 },
+          { "node": "Fetch Google News - Geopolitical", "type": "main", "index": 0 },
+          { "node": "Fetch Google News - Commodities", "type": "main", "index": 0 },
+          { "node": "Fetch Yahoo Finance RSS", "type": "main", "index": 0 },
+          { "node": "Fetch Reddit Sentiment", "type": "main", "index": 0 },
+          { "node": "Fetch VIX Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Weekly Report Trigger (Sunday 8AM)": {
+      "main": [
+        [
+          { "node": "Generate Weekly Report", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Google News - Markets": {
+      "main": [
+        [
+          { "node": "Aggregate & Parse News", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Google News - Geopolitical": {
+      "main": [
+        [
+          { "node": "Aggregate & Parse News", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Google News - Commodities": {
+      "main": [
+        [
+          { "node": "Aggregate & Parse News", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Yahoo Finance RSS": {
+      "main": [
+        [
+          { "node": "Aggregate & Parse News", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Reddit Sentiment": {
+      "main": [
+        [
+          { "node": "Aggregate & Parse News", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch VIX Data": {
+      "main": [
+        [
+          { "node": "Process VIX Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Process VIX Data": {
+      "main": [
+        [
+          { "node": "Merge Market Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Aggregate & Parse News": {
+      "main": [
+        [
+          { "node": "Merge Market Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Merge Market Data": {
+      "main": [
+        [
+          { "node": "Analyze News with Gemini", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Analyze News with Gemini": {
+      "main": [
+        [
+          { "node": "Process Analysis Result", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Process Analysis Result": {
+      "main": [
+        [
+          { "node": "Check If Urgent Alert Needed", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Check If Urgent Alert Needed": {
+      "main": [
+        [
+          { "node": "Generate Urgent Alert Email", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Store Daily Analysis", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Generate Urgent Alert Email": {
+      "main": [
+        [
+          { "node": "Send Urgent Alert Email", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Send Urgent Alert Email": {
+      "main": [
+        [
+          { "node": "Format Alert for Storage", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format Alert for Storage": {
+      "main": [
+        [
+          { "node": "Save Alert to GitHub", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Generate Weekly Report": {
+      "main": [
+        [
+          { "node": "Send Weekly Report Email", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Send Weekly Report Email": {
+      "main": [
+        [
+          { "node": "Format Weekly Report for Storage", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format Weekly Report for Storage": {
+      "main": [
+        [
+          { "node": "Save Report to GitHub", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "market-research"
+    },
+    {
+      "name": "automated"
+    }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
